@@ -62,7 +62,7 @@ dotenv
 
 Clone repository
 
-git clone https://github.com/<your-username>/shopzen-backend.git
+git clone https://github.com/aditya0xd/shopzen-backend.git
 
 Install dependencies
 

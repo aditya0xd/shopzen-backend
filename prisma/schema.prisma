@@ -15,8 +15,54 @@ model User {
   createdAt DateTime @default(now())
 }
 
+model Product {
+  id                    String   @id @default(uuid())
+  title                 String
+  description           String?
+  category              String
+  brand                 String
+  sku                   String   @unique
+
+  price                 Float
+  discountPercentage    Float?
+  rating                Float    @default(0)
+  stock                 Int
+  minimumOrderQuantity  Int
+
+  availabilityStatus    String
+  warrantyInformation   String?
+  shippingInformation   String?
+  returnPolicy          String?
+  weight                Float?
+
+  tags                  String[]
+  images                String[]
+  thumbnail             String
+
+  dimensions            Json
+  meta                  Json
+
+  reviews               Review[]
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Review {
+  id              String   @id @default(uuid())
+  rating          Int
+  comment         String
+  reviewerName    String
+  reviewerEmail   String
+  productId       String
+  createdAt       DateTime @default(now())
+
+  product         Product  @relation(fields: [productId], references: [id])
+}
+
+
+
 enum Role {
   USER
   ADMIN
 }
-
