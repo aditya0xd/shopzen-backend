@@ -14,7 +14,11 @@ const create = async (req, res) => {
 };
 
 const getAll = async (req, res) => {
-  const products = await getAllProducts();
+
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+
+  const products = await getAllProducts({page, limit});
   res.json(products);
 };
 
@@ -31,3 +35,5 @@ module.exports = {
   getAll,
   getOne
 };
+
+
