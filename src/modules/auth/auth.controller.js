@@ -27,15 +27,26 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if(email === undefined || password === undefined) {
-      return res.status(400).json({ error: 'Email and password are required' });
+
+    const valid = schema.safeParse(req.body);
+    if(!valid.success){
+      return res.status(406).json({
+        message: "invalid credentials"
+      })
     }
-    if(email.trim() === '' || password.trim() === '') {
-      return res.status(400).json({ error: 'Email and password cannot be empty' });
-    }
+    const { email, password } = valid.data;
+    
+    // if(email === undefined || password === undefined) {
+    //   return res.status(400).json({ error: 'Email and password are required' });
+    // }
+    // if(email.trim() === '' || password.trim() === '') {
+    //   return res.status(400).json({ error: 'Email and password cannot be empty' });
+    // }
+
     const token = await loginUser(email, password);
+
     res.status(200).json(token);
+
   } catch (err) {
     res.status(401).json({ error: err.message });
   }
