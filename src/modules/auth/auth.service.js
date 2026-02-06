@@ -2,8 +2,8 @@ import prisma from '../../utils/prisma'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 
-const registerUser = async (email, password) => {
-  const existingUser = await prisma.user.findUnique({ where: { email } });
+const registerUser = async (username, password) => {
+  const existingUser = await prisma.user.findUnique({ where: { username } });
   if (existingUser) {
     throw new Error('User already exists');
   }
@@ -17,8 +17,8 @@ const registerUser = async (email, password) => {
   return user;
 };
 
-const loginUser = async (email, password) => {
-  const user = await prisma.user.findUnique({ where: { email } });
+const loginUser = async (username, password) => {
+  const user = await prisma.user.findUnique({ where: { username } });
   if (!user) throw new Error('Invalid credentials');
 
   const isMatch = await bcrypt.compare(password, user.password);
