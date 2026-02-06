@@ -26,7 +26,7 @@ app.get('/health', (req, res) => {
 
 module.exports = app;
 
-// rate limiting, logging, error handling can be added here
+
 // halmet
 // security headers
 // data sanitization

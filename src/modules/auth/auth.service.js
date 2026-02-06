@@ -2,35 +2,39 @@ import prisma from '../../utils/prisma'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 
-const registerUser = async (username, password) => {
-  const existingUser = await prisma.user.findUnique({ where: { username } });
+const SALT_ROUNDS = Number(process.env.SALT)
+const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
+const REFRESH_SECRET = process.env.JWT_SECRET;
+
+const registerUser = async (email, password) => {
+  const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
-    throw new Error('User already exists');
+    throw new Error('USER_EXISTS');
   }
 
-  const hashedPassword = await bcrypt.hash(password, 10);
+  const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
   const user = await prisma.user.create({
     data: { email, password: hashedPassword }
   });
 
-  return user;
+  return { id: user.id, email: user.email };
+
 };
 
-const loginUser = async (username, password) => {
-  const user = await prisma.user.findUnique({ where: { username } });
-  if (!user) throw new Error('Invalid credentials');
+const loginUser = async (email, password) => {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) throw new Error('AUTH_FAILED');
 
   const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) throw new Error('Invalid credentials');
+  if (!isMatch) throw new Error('AUTH_FAILED');
 
-  const token = jwt.sign(
-    { userId: user.id, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+  const payload = { userId: user.id, role: user.role };
 
-  return { token };
+  const accessToken = jwt.sign(payload, ACCESS_SECRET, { expiresIn: '15m' });
+  const refreshToken = jwt.sign(payload, REFRESH_SECRET, { expiresIn: '7d' });
+
+  return { accessToken, refreshToken };
 };
 
 module.exports = { registerUser, loginUser };
