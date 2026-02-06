@@ -1,8 +1,23 @@
-const { registerUser, loginUser } = require('./auth.service');
+import { Schema } from 'zod/v3';
+import { registerUser, loginUser } from './auth.service';
+import z from "zod"
+
+const schema = z.object({
+  username: z.string().min(3),
+  password: z.string().min(8)
+})
 
 const register = async (req, res) => {
   try {
-    const { email, password } = req.body;
+
+    const valid = schema.safeParse(req.body)
+    
+    if(!valid.success){
+      return res.status(406).json({
+        message: "invalid credentials"
+      })
+    }
+    const { email, password } = valid.data;
     const user = await registerUser(email, password);
     res.status(201).json({ message: 'User registered', userId: user.id });
   } catch (err) {

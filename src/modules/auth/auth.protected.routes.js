@@ -11,7 +11,7 @@ router.get('/me', authMiddleware, (req, res) => {
   });
 });
 
-// 👇 ADMIN-ONLY ROUTE
+// ADMIN-ONLY ROUTE
 router.post(
   '/admin-only',
   authMiddleware,
