@@ -1,6 +1,6 @@
-import {register, login} from "./auth.controller.js"
-import express from "express"
-import limiter from './limiter.middleware'
+const express = require('express');
+const limiter = require('../../middleware/limiter.middleware');
+const { register, login } = require('./auth.controller');
 
 const router = express.Router();
 

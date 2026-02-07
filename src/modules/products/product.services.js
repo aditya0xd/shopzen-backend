@@ -26,7 +26,7 @@
 
 
 //
-const prisma = require("../../utils/prisma");
+const prisma = require( "../../utils/prisma")
 
 exports.createProduct = async (data) => {
   // Enforce backend authority

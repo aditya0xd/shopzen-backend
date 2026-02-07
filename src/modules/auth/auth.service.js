@@ -1,6 +1,6 @@
-import prisma from '../../utils/prisma'
-import bcrypt from 'bcrypt'
-import jwt from 'jsonwebtoken'
+const prisma = require( "../../utils/prisma")
+const bcrypt = require('bcrypt')
+const jwt = require('jsonwebtoken')
 
 const SALT_ROUNDS = Number(process.env.SALT)
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;

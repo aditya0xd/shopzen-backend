@@ -1,5 +1,6 @@
-import z from "zod"
-import { registerUser, loginUser } from './auth.service';
+const z = require("zod")
+const { registerUser, loginUser } = require('./auth.service');
+
 
 const schema = z.object({
   email: z.string().email(),

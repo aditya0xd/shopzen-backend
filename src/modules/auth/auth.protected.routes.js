@@ -2,6 +2,7 @@ const express = require('express');
 const authMiddleware = require('../../middleware/auth.middleware');
 const requireRole = require('../../middleware/role.middleware');
 
+
 const router = express.Router();
 
 router.get('/me', authMiddleware, (req, res) => {
@@ -12,7 +13,7 @@ router.get('/me', authMiddleware, (req, res) => {
 });
 
 // ADMIN-ONLY ROUTE
-router.post(
+router.get(
   '/admin-only',
   authMiddleware,
   requireRole('ADMIN'),

@@ -1,4 +1,4 @@
-const { z } = require("zod");
+const z = require("zod")
 
 const dimensionsSchema = z.object({
   width: z.number().positive(),

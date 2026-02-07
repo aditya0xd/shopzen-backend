@@ -1,10 +1,12 @@
-const requireRole = (role) => {
+const requireRole = (roles) => {
+  const allowedRoles = Array.isArray(roles) ? roles : [roles];
+
   return (req, res, next) => {
-    if (!req.user || req.user.role !== role) {
-      return res.status(403).json({ error: 'Forbidden: Insufficient access' });
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ message: 'Forbidden' });
     }
     next();
   };
 };
-
+ 
 module.exports = requireRole;
