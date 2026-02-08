@@ -1,15 +1,11 @@
 const z = require("zod")
 const { registerUser, loginUser } = require('./auth.service');
+const { registerSchema, loginSchema } = require('./auth.schema');
 
-
-const schema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-})
 
 const register = async (req, res) => {
   
-  const valid = schema.safeParse(req.body)
+  const valid = registerSchema.safeParse(req.body)
   
   if(!valid.success){
     return res.status(400).json({
@@ -29,7 +25,7 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   
-  const valid = schema.safeParse(req.body);
+  const valid = loginSchema.safeParse(req.body);
   if(!valid.success){
     return res.status(400).json({
       message: "invalid credentials"
