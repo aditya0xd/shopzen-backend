@@ -4,6 +4,7 @@ const cors = require('cors');
 const authRoutes = require('./modules/auth/auth.routes');
 const protectedRoutes = require('./modules/auth/auth.protected.routes');
 const productRoutes = require('./modules/products/product.routes');
+const cartRoutes = require('./modules/cart/cart.routes');
 
 
 const app = express();
@@ -19,6 +20,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/auth', protectedRoutes);
 
 app.use('/api/v1/products', productRoutes)
+app.use('/api/v1/cart', cartRoutes)
 
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'ShopZen backend running' });
