@@ -8,16 +8,22 @@ datasource db {
 }
 
 model User {
-  id       String @id @default(uuid())
-  email    String @unique
-  password String
-  role     Role   @default(USER)
+  id       String  @id @default(uuid())
+  email    String  @unique
+  password String? // Optional: null for OAuth users
+  role     Role    @default(USER)
+
+  // OAuth fields
+  googleId String? @unique
+  name     String?
 
   cart      Cart?
   orders    Order[]
   addresses Address[]
+  wishlist  Wishlist?
 
-  createdAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  conversations AIConversation[]
 }
 
 model Product {
@@ -51,8 +57,9 @@ model Product {
 
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
-  cartItems  CartItem[]
-  orderItems OrderItem[]
+  cartItems       CartItem[]
+  orderItems      OrderItem[]
+  wishlistItems   WishlistItem[]
 }
 
 model Review {
@@ -195,4 +202,60 @@ enum PaymentProvider {
   STRIPE
   RAZORPAY
   PAYPAL
+}
+
+model AIConversation {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  summary   String?
+  messages  AIMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AIMessage {
+  id              String         @id @default(uuid())
+  conversationId  String
+  conversation    AIConversation @relation(fields: [conversationId], references: [id])
+
+  role            AIRole
+  content         String
+  
+  toolName        String?
+  toolArgs        String?
+
+  createdAt       DateTime       @default(now())
+}
+
+enum AIRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  TOOL
+}
+
+model WishlistItem {
+  id         String   @id @default(uuid())
+  wishlistId String
+  productId  String
+  
+  wishlist   Wishlist @relation(fields: [wishlistId], references: [id])
+  product    Product  @relation(fields: [productId], references: [id])
+
+  addedAt    DateTime @default(now())
+
+  @@unique([wishlistId, productId])
+}
+
+model Wishlist {
+  id        String         @id @default(uuid())
+  userId    String         @unique
+  user      User           @relation(fields: [userId], references: [id])
+  items     WishlistItem[]
+  
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 }

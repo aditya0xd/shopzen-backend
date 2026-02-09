@@ -1,4 +1,4 @@
-const prisma = require( "../../utils/prisma")
+const prisma = require("../../utils/prisma")
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 
@@ -37,4 +37,16 @@ const loginUser = async (email, password) => {
   return { accessToken, refreshToken };
 };
 
-module.exports = { registerUser, loginUser };
+/**
+ * Handle Google OAuth callback - generate tokens for authenticated user
+ */
+const googleOAuthCallback = async (user) => {
+  const payload = { userId: user.id, role: user.role };
+
+  const accessToken = jwt.sign(payload, ACCESS_SECRET, { expiresIn: '15m' });
+  const refreshToken = jwt.sign(payload, REFRESH_SECRET, { expiresIn: '7d' });
+
+  return { accessToken, refreshToken, user: { id: user.id, email: user.email, name: user.name } };
+};
+
+module.exports = { registerUser, loginUser, googleOAuthCallback };
