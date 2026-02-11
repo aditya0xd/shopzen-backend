@@ -32,7 +32,7 @@ const getUserCart = async (req, res) => {
  */
 const addItemToCart = async (req, res) => {
     const valid = addToCartSchema.safeParse(req.body);
-
+    console.log(valid)
     if (!valid.success) {
         return res.status(400).json({
             message: "Invalid request data",

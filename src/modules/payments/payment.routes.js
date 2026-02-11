@@ -4,7 +4,8 @@ const {
     confirmPayment,
     updateStatus,
     getOrderPayment,
-    webhookHandler
+    webhookHandler,
+    mockPaymentSuccess
 } = require("./payment.controller");
 const authMiddleware = require("../../middleware/auth.middleware");
 

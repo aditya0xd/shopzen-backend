@@ -62,11 +62,22 @@ exports.createProduct = async (data) => {
   }
 };
 
-exports.getAllProducts = async ({ page, limit }) => {
+exports.getAllProducts = async ({ page, limit, q }) => {
   const skip = (page - 1) * limit;
 
-  const [items, total] = await Promise.all([
+  console.log("Querying products with:", { page, limit, q });
+
+    const where = q
+    ? {
+        OR: [
+          { title: { contains: q, mode: "insensitive" } },
+        ],
+      }
+    : {};
+
+  const [products, total] = await Promise.all([
     prisma.product.findMany({
+      where,
       skip,
       take: limit,
       orderBy: {
@@ -76,7 +87,9 @@ exports.getAllProducts = async ({ page, limit }) => {
         id: true,
         title: true,
         price: true,
+        rating: true,
         thumbnail: true,
+        images: true,
         stock: true,
         availabilityStatus: true,
       },
@@ -85,7 +98,7 @@ exports.getAllProducts = async ({ page, limit }) => {
   ]);
 
   return {
-    items,
+    products,
     pagination: {
       page,
       limit,

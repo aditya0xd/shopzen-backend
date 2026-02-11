@@ -15,7 +15,7 @@ const wishlistRoutes = require('./modules/wishlist/wishlist.routes');
 const app = express();
 
 app.use(cors({
-  origin: true,
+  origin: "https://shop-zen-ten.vercel.app/",
   credentials: true
 }));
 

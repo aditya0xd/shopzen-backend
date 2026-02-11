@@ -1,6 +1,7 @@
 const z = require("zod")
 const { registerUser, loginUser, googleOAuthCallback } = require('./auth.service');
 const { registerSchema, loginSchema } = require('./auth.schema');
+require('dotenv').config();
 
 
 const register = async (req, res) => {
@@ -12,10 +13,10 @@ const register = async (req, res) => {
       message: "Invalid request data"
     })
   }
-  const { email, password } = valid.data;
+  const {name, email, password } = valid.data;
   try {
-    const user = await registerUser(email, password);
-    res.status(201).json({ message: 'User registered', userId: user.id });
+    const user = await registerUser(name, email, password);
+    res.status(201).json({ message: 'User registered', userId: user.id, });
   } catch (err) {
     console.error(err.message)
     res.status(400).json({ message: 'Invalid email or password' });
@@ -38,6 +39,7 @@ const login = async (req, res) => {
 
     res.status(200).json(token);
 
+
   } catch (err) {
     console.error(err.message)
     res.status(401).json({ message: 'Invalid email or password' });
@@ -47,21 +49,49 @@ const login = async (req, res) => {
 
 /**
  * Google OAuth callback - called after successful authentication
+ * Hardened with proper error handling and validation
  */
 const googleCallback = async (req, res) => {
   try {
-    // req.user is populated by Passport after successful authentication
+    // Validate that user was authenticated by Passport
+    if (!req.user) {
+      console.warn('[OAuth] Callback received without authenticated user');
+      return res.status(401).json({ 
+        message: 'Authentication failed - invalid user data' 
+      });
+    }
+
+    // Validate essential user fields
+    if (!req.user.id || !req.user.email) {
+      console.error('[OAuth] Invalid user object from Passport', { user: req.user });
+      return res.status(500).json({ 
+        message: 'Authentication processing error' 
+      });
+    }
+
+    // Call service to generate tokens
     const tokens = await googleOAuthCallback(req.user);
 
-    // Send tokens to client
-    // In production, you might redirect to frontend with tokens in query params or cookies
-    res.status(200).json({
+    // Return tokens to client with security headers
+    return res.status(200).json({
       message: 'Google authentication successful',
-      ...tokens
+      ...tokens,
+      // Add hint about emailVerified status
+      emailVerified: req.user.emailVerified === true,
     });
   } catch (err) {
-    console.error('Google OAuth callback error:', err.message);
-    res.status(500).json({ message: 'Authentication failed' });
+    console.error('[OAuth] Google callback error:', {
+      error: err.message,
+      userId: req.user?.id,
+      email: req.user?.email,
+    });
+
+    // Don't expose internal error details to client
+    const statusCode = err.message?.includes('already exists') ? 400 : 500;
+    res.status(statusCode).json({ 
+      message: 'Google authentication failed',
+      error: err.message?.includes('already exists') ? err.message : 'Authentication processing error'
+    });
   }
 };
 

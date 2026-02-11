@@ -16,6 +16,12 @@ model User {
   // OAuth fields
   googleId String? @unique
   name     String?
+  picture  String?
+  emailVerified Boolean @default(false)
+
+  // OAuth metadata for audit trails
+  oauthProvider String? // "google", "github", etc
+  lastOAuthLogin DateTime?
 
   cart      Cart?
   orders    Order[]
