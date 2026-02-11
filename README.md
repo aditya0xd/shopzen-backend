@@ -2,6 +2,7 @@
 
 A **production-style backend** for an e-commerce application, built with **Node.js, Express, PostgreSQL, and Prisma**.  
 This project demonstrates real-world backend architecture, including authentication, authorization, database modeling, and clean separation of concerns.
+live link: https://shop-zen-ten.vercel.app/
 
 ---
 
