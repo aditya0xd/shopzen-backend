@@ -1,3 +1,4 @@
+const { ca } = require('zod/locales');
 const {
   createProduct,
   getAllProducts,
@@ -18,8 +19,9 @@ const getAll = async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const q = req.query.q?.trim();
+  const category = req.query.category?.trim();
 
-  const products = await getAllProducts({page, limit, q});
+  const products = await getAllProducts({page, limit, q, category});
   res.json(products);
 };
 

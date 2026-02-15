@@ -2,16 +2,85 @@ const prisma = require("../../utils/prisma");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { toolsDefinition, toolsImplementation } = require("./chat.tools");
 
-// Initialize Google AI
-// Get your free API key from https://aistudio.google.com/
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "mock_key");
+const SHUT_DOWN_MODELS = new Set([
+    // "gemini-1.0-pro", // Example of a potentially deprecated model
+]);
+const DEFAULT_GEMINI_MODEL = "gemini-flash-latest"; // Fallback to "gemini-2.5-flash-lite" if needed
+const GENERIC_ERROR_TEXT = "I encountered an error processing your request. Please try again.";
+const MAX_CONTEXT_MESSAGES = 10;
+const MAX_TOOL_CALL_ROUNDS = 5;
+const SUMMARY_MAX_CHARS = 1200;
 
-// Define model with tools (function calling)
-// 'gemini-1.5-flash-latest' or 'gemini-1.5-flash' usually supports tools
-const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
-    tools: toolsDefinition
-});
+const hasGeminiKey = () => {
+    return Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
+};
+
+const getGeminiModelName = () => {
+    const configured = process.env.GEMINI_MODEL?.trim();
+    if (!configured) {
+        return DEFAULT_GEMINI_MODEL;
+    }
+
+    if (SHUT_DOWN_MODELS.has(configured)) {
+        console.warn(
+            `Configured GEMINI_MODEL "${configured}" is shut down. Falling back to "${DEFAULT_GEMINI_MODEL}".`
+        );
+        return DEFAULT_GEMINI_MODEL;
+    }
+
+    return configured;
+};
+
+const getChatModel = () => {
+    if (!hasGeminiKey()) {
+        return null;
+    }
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY.trim());
+    return genAI.getGenerativeModel({
+        model: getGeminiModelName(),
+        tools: toolsDefinition,
+    });
+};
+
+const mapDbRoleToGeminiRole = (role) => {
+    return role === "USER" ? "user" : "model";
+};
+
+const buildSummary = (messages) => {
+    if (!messages || messages.length === 0) {
+        return null;
+    }
+
+    const recentMessages = messages.slice(-8);
+    const lines = [];
+
+    for (const msg of recentMessages) {
+        // ignore the generic failure text when summarizing
+        if (msg.role === "ASSISTANT" && msg.content === GENERIC_ERROR_TEXT) {
+            continue;
+        }
+
+        const content = String(msg.content || "").replace(/\s+/g, " ").trim();
+        if (!content) {
+            continue;
+        }
+
+        const speaker = msg.role === "USER" ? "User" : "Assistant";
+        lines.push(`- ${speaker}: ${content}`);
+    }
+
+    if (lines.length === 0) {
+        return null;
+    }
+
+    const summary = `Previous context:\n${lines.join("\n")}`;
+    if (summary.length <= SUMMARY_MAX_CHARS) {
+        return summary;
+    }
+
+    return `${summary.slice(0, SUMMARY_MAX_CHARS)}...`;
+};
 
 /**
  * Get or create conversation for user
@@ -19,6 +88,7 @@ const model = genAI.getGenerativeModel({
 const getOrCreateConversation = async (userId) => {
     let conversation = await prisma.aIConversation.findFirst({
         where: { userId },
+        orderBy: { createdAt: "asc" },
         include: {
             messages: {
                 orderBy: { createdAt: "asc" },
@@ -29,7 +99,11 @@ const getOrCreateConversation = async (userId) => {
     if (!conversation) {
         conversation = await prisma.aIConversation.create({
             data: { userId },
-            include: { messages: true },
+            include: {
+                messages: {
+                    orderBy: { createdAt: "asc" },
+                },
+            },
         });
     }
 
@@ -37,87 +111,94 @@ const getOrCreateConversation = async (userId) => {
 };
 
 /**
- * Summarize conversation
- * Takes the old messages, asks LLM to summarize, and updates conversation.summary
- * Returns the "compressed" history context.
+ * Build context history and maintain compact summary for older messages
  */
 const getContextWithSummary = async (conversation) => {
-    const MAX_CONTEXT_MESSAGES = 10;
+    // keep the raw sequence for summary generation, but only send cleaned
+    // messages (without our generic error replies) to Gemini's history.
+    const originalMessages = conversation.messages;
+    const filteredMessages = originalMessages.filter(
+        (msg) => !(msg.role === "ASSISTANT" && msg.content === GENERIC_ERROR_TEXT)
+    );
 
-    const allMessages = conversation.messages;
+    // always attempt to regenerate the summary from filtered history; this
+    // ensures stale summaries containing the error text are overwritten.
+    const generatedSummary = buildSummary(
+        originalMessages.filter(
+            (msg) => !(msg.role === "ASSISTANT" && msg.content === GENERIC_ERROR_TEXT)
+        )
+    );
+    let summaryText = conversation.summary;
 
-    // If short, return full history
-    if (allMessages.length <= MAX_CONTEXT_MESSAGES) {
-        const history = allMessages.map((msg) => ({
-            role: msg.role === "USER" ? "user" : "model",
-            parts: [{ text: msg.content }],
-        }));
-        // Prepend existing summary if any
-        if (conversation.summary) {
-            history.unshift({ role: "model", parts: [{ text: `(Memory Summary: ${conversation.summary})` }] });
+    if (generatedSummary && generatedSummary !== conversation.summary) {
+        try {
+            await prisma.aIConversation.update({
+                where: { id: conversation.id },
+                data: { summary: generatedSummary },
+            });
+            summaryText = generatedSummary;
+        } catch (error) {
+            console.warn("Failed to persist chat summary:", error.message);
+            summaryText = generatedSummary;
         }
-        return history;
     }
 
-    // If long, summarize older messages
-    // We keep the last N messages + summary of the rest
-    const recentMessages = allMessages.slice(-MAX_CONTEXT_MESSAGES);
-    const olderMessages = allMessages.slice(0, -MAX_CONTEXT_MESSAGES);
+    let history;
+    if (filteredMessages.length <= MAX_CONTEXT_MESSAGES) {
+        history = filteredMessages.map((msg) => ({
+            role: mapDbRoleToGeminiRole(msg.role),
+            parts: [{ text: msg.content }],
+        }));
+    } else {
+        const recentMessages = filteredMessages.slice(-MAX_CONTEXT_MESSAGES);
+        history = recentMessages.map((msg) => ({
+            role: mapDbRoleToGeminiRole(msg.role),
+            parts: [{ text: msg.content }],
+        }));
+    }
 
-    // In a real advanced implementation, we would call an LLM here to generate a new summary
-    // based on (conversation.summary + olderMessages).
-    // For now, we'll mock the summarization trigger or just truncate older history 
-    // and rely on existing summary if we had a background job.
-
-    // Let's just return the sliced history + summary note for efficiency
-    // Correct implementation would involve an async summary update.
-
-    const history = recentMessages.map((msg) => ({
-        role: msg.role === "USER" ? "user" : "model",
-        parts: [{ text: msg.content }],
-    }));
-
-    if (conversation.summary) {
-        // Inject summary as a system-like message or first model message
-        history.unshift({ role: "model", parts: [{ text: `(Context Summary: ${conversation.summary})` }] });
+    if (summaryText) {
+        // always push the summary as a user role at the front for validation
+        history.unshift({
+            role: "user",
+            parts: [{ text: summaryText }],
+        });
     }
 
     return history;
 };
 
 /**
- * Execute Tool Calls
+ * Execute tool calls from Gemini
  */
 const executeToolCalls = async (functionCalls, userId) => {
     const results = [];
 
     for (const call of functionCalls) {
-        const fnName = call.name;
-        const args = call.args;
+        const fnName = call?.name;
+        const args = call?.args || {};
 
         let result;
 
-        if (toolsImplementation[fnName]) {
+        if (fnName && toolsImplementation[fnName]) {
             try {
-                // Inject userId for secure tools (like getOrderStatus)
-                // We pass arguments and the secure context (userId)
                 if (fnName === "getOrderStatus") {
                     result = await toolsImplementation[fnName](args, userId);
                 } else {
                     result = await toolsImplementation[fnName](args);
                 }
-            } catch (err) {
-                result = { error: err.message };
+            } catch (error) {
+                result = { error: error.message || "Tool execution failed" };
             }
         } else {
-            result = { error: `Function ${fnName} not found` };
+            result = { error: `Function ${fnName || "unknown"} not found` };
         }
 
         results.push({
             functionResponse: {
-                name: fnName,
-                response: { result: result }
-            }
+                name: fnName || "unknown",
+                response: { result },
+            },
         });
     }
 
@@ -125,12 +206,11 @@ const executeToolCalls = async (functionCalls, userId) => {
 };
 
 /**
- * Add user message and process conversation with tools
+ * Add user message and process conversation with Gemini tools
  */
 const processUserMessage = async (userId, content) => {
     const conversation = await getOrCreateConversation(userId);
 
-    // 1. Save User Message
     await prisma.aIMessage.create({
         data: {
             conversationId: conversation.id,
@@ -139,73 +219,72 @@ const processUserMessage = async (userId, content) => {
         },
     });
 
-    // Re-fetch conversation to get latest message if needed, or just append locally
-    // But we have the conversation object from before.
-    // We need to add the new message to our *local* history for the chat session context.
-
     let aiFinalResponseText = "";
 
     try {
-        if (process.env.GEMINI_API_KEY) {
-            // 2. Prepare History (with summarization logic)
-            const history = await getContextWithSummary(conversation);
+        const model = getChatModel();
 
-            // Start Chat Session
+        if (model) {
+            const history = await getContextWithSummary(conversation);
             const chat = model.startChat({
-                history: history,
+                history,
                 generationConfig: {
                     maxOutputTokens: 1000,
                 },
                 systemInstruction: {
                     role: "system",
-                    parts: [{ text: "You are the advanced AI assistant for ShopZen. You have access to tools to search products and check order status. Always use tools when the user asks for data. If you use a tool, answer based on the tool's output. If the user is angry, escalate. Be concise." }]
-                }
+                    parts: [
+                        {
+                            text: "You are the ShopZen AI assistant. Use tools for product and order data requests. If a user is frustrated or needs human help, call escalateToHuman. Keep responses concise and helpful.",
+                        },
+                    ],
+                },
             });
-
-            // 3. Send Message & Handle Function Calls loop
-            // Gemini SDK handles the multi-turn function calling conveniently 
-            // if we follow the pattern: sendMessage -> response.functionCalls -> sendMessage(functionResponse)
 
             let result = await chat.sendMessage(content);
             let response = await result.response;
-            let functionCalls = response.functionCalls();
+            let functionCalls = response.functionCalls?.() || [];
+            let toolCallRound = 0;
 
-            // If the model wants to call functions
-            while (functionCalls && functionCalls.length > 0) {
-                console.log("Gemini requested tool execution:", functionCalls);
+            while (functionCalls.length > 0) {
+                toolCallRound += 1;
 
-                // Execute tools
+                if (toolCallRound > MAX_TOOL_CALL_ROUNDS) {
+                    aiFinalResponseText = "I could not finish processing that request. Please try again with a simpler query.";
+                    break;
+                }
+
                 const functionResponses = await executeToolCalls(functionCalls, userId);
-
-                // Send tool outputs back to model
-                // Format: [ { functionResponse: { name, response } } ]
                 result = await chat.sendMessage(functionResponses);
                 response = await result.response;
-                functionCalls = response.functionCalls(); // Check if it wants to call more tools
+                functionCalls = response.functionCalls?.() || [];
             }
 
-            aiFinalResponseText = response.text();
-
+            if (!aiFinalResponseText) {
+                aiFinalResponseText = response.text?.() || "I could not generate a response.";
+            }
         } else {
-            console.warn("⚠️ GEMINI_API_KEY missing. Using mock response.");
-            aiFinalResponseText = `(Mock AI) I received: "${content}". Configure GEMINI_API_KEY to enable tools like product search.`;
+            aiFinalResponseText = `(Mock AI) I received: "${content}". Configure GEMINI_API_KEY to enable live AI tools.`;
         }
     } catch (error) {
-        console.error("Gemini AI Error:", error);
+        console.error("Gemini AI error:", error);
         aiFinalResponseText = "I encountered an error processing your request. Please try again.";
     }
 
-    // 4. Save Assistant Message
-    const assistantMessage = await prisma.aIMessage.create({
-        data: {
-            conversationId: conversation.id,
-            role: "ASSISTANT",
-            content: aiFinalResponseText,
-        },
-    });
-
-    // 5. Update Conversation Summary (Simulated background task)
-    // If history length > 20, we would ideally trigger a summary update here.
+    // Only persist real AI output; skip the generic error text to avoid
+    // seeding the conversation with it and creating a loop.
+    let assistantMessage;
+    if (aiFinalResponseText === GENERIC_ERROR_TEXT) {
+        console.warn('Skipping storage of generic AI error message');
+    } else {
+        assistantMessage = await prisma.aIMessage.create({
+            data: {
+                conversationId: conversation.id,
+                role: "ASSISTANT",
+                content: aiFinalResponseText,
+            },
+        });
+    }
 
     return {
         userMessage: { role: "USER", content },
@@ -214,11 +293,12 @@ const processUserMessage = async (userId, content) => {
 };
 
 /**
- * Get conversation history
+ * Get conversation history for user
  */
 const getConversationHistory = async (userId) => {
-    const conversation = await prisma.aIConversation.findFirst({
+    const conversations = await prisma.aIConversation.findMany({
         where: { userId },
+        orderBy: { createdAt: "asc" },
         include: {
             messages: {
                 orderBy: { createdAt: "asc" },
@@ -226,32 +306,47 @@ const getConversationHistory = async (userId) => {
         },
     });
 
-    if (!conversation) {
+    if (conversations.length === 0) {
         return [];
     }
 
-    return conversation.messages;
+    const messages = conversations.flatMap((conversation) => conversation.messages);
+    messages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    return messages;
 };
 
 /**
- * Clear conversation history
+ * Clear conversation history for user
  */
 const clearHistory = async (userId) => {
-    const conversation = await prisma.aIConversation.findFirst({
+    const conversations = await prisma.aIConversation.findMany({
         where: { userId },
+        select: { id: true },
     });
 
-    if (conversation) {
-        // Delete messages
-        await prisma.aIMessage.deleteMany({
-            where: { conversationId: conversation.id },
-        });
-        // Reset summary
-        await prisma.aIConversation.update({
-            where: { id: conversation.id },
-            data: { summary: null }
-        });
+    if (conversations.length === 0) {
+        return { message: "History cleared" };
     }
+
+    const conversationIds = conversations.map((conversation) => conversation.id);
+
+    await prisma.aIMessage.deleteMany({
+        where: {
+            conversationId: {
+                in: conversationIds,
+            },
+        },
+    });
+
+    await prisma.aIConversation.updateMany({
+        where: {
+            id: {
+                in: conversationIds,
+            },
+        },
+        data: { summary: null },
+    });
 
     return { message: "History cleared" };
 };
@@ -261,4 +356,7 @@ module.exports = {
     processUserMessage,
     getConversationHistory,
     clearHistory,
+    // helpers exported for testing/debugging
+    getChatModel,
+    getContextWithSummary,
 };

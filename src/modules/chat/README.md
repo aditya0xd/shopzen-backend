@@ -1,62 +1,56 @@
 # AI Chat API Documentation
 
 ## Overview
-The Chat API enables users to converse with an AI assistant with persisted message history stored in the database.
+The Chat API lets authenticated users talk to an AI assistant with conversation history stored in the database.
 
-**Current Status:** The API stores and retrieves messages. Advanced features (tool calling, data grounding, memory summarization, escalation logic) are **fully implemented in code** but require `GEMINI_API_KEY` configuration to activate. Without the API key, the system returns mock responses.
+Current behavior:
+- With `GEMINI_API_KEY` configured: uses Google Gemini with tool calling.
+- Without `GEMINI_API_KEY`: returns a mock assistant response so frontend flows still work.
+
+## Authentication
+All chat endpoints require a Bearer token:
+
+```http
+Authorization: Bearer <access_token>
+```
 
 ## Architecture
-- **AIConversation**: Represents a chat session for each user, with optional summary field for long conversations.
-- **AIMessage**: Individual messages stored with role (USER/ASSISTANT/SYSTEM/TOOL) and content.
-- **AI Integration**: Uses Google Gemini (`gemini-1.5-flash`) with function calling enabled (when API key is configured).
-- **Tools**: Three integrated functions that the AI can call to interact with the system.
+- `AIConversation`: conversation container for a user, with optional `summary`.
+- `AIMessage`: message records with role (`USER`, `ASSISTANT`, `SYSTEM`, `TOOL`) and content.
+- `chat.service.js`: handles context building, Gemini calls, tool execution, and persistence.
+- `chat.tools.js`: tool definitions and secure implementations.
 
-## Advanced Features (Requires API Key)
-
-The following capabilities are **implemented and ready to use** once you configure `GEMINI_API_KEY`:
-
-1.  **Function Calling (Tools)**: The AI can initiate actions using three tools:
-    - `searchProducts`: Search the product catalog based on query strings
-    - `getOrderStatus`: Retrieve order status and details  
-    - `escalateToHuman`: Escalate complex or frustrated users to human support
-
-2.  **Verified Data Injection**: When tools are called, the system executes them securely:
-    - The `getOrderStatus` tool verifies that `userId` matches the order owner before returning data
-    - Real database results from Prisma are injected back into the conversation context
-    - The AI uses actual data (not hallucinations) to respond to users
-
-3.  **Memory Summarization**: The system manages context efficiently:
-    - Conversations with ≤10 messages use full history
-    - Longer conversations use the last 10 messages + a summary of older messages
-    - Summary is prepended to context to maintain continuity
-    - Prevents exceeding token limits on very long conversations
-
-4.  **Escalation Logic**: The AI can detect frustration and call the `escalateToHuman` tool:
-    - Logs escalation reason for human review
-    - In production, would trigger notifications/tickets
-    - Currently returns confirmation message to user
-
-5.  **Safety Instructions**: System prompt guides the AI to:
-    - Use tools when users ask for data
-    - Answer based on tool outputs (grounded responses)
-    - Escalate when detecting user frustration
-    - Provide concise, helpful responses
+## AI Features (when `GEMINI_API_KEY` is set)
+1. Function calling with tools:
+   - `searchProducts`
+   - `getOrderStatus`
+   - `escalateToHuman`
+2. Grounded responses using tool outputs from Prisma queries.
+3. Context management:
+   - Up to 10 recent messages are sent directly.
+   - Older messages are compressed into a stored conversation summary.
+4. Safety/runtime controls:
+   - Tool-call loop is capped to avoid runaway calls.
+   - Short, support-focused system instruction is applied.
 
 ## API Endpoints
 
-### 1. Send Message
-**POST** `/api/v1/chat`
+### 1) Send Message
+`POST /api/v1/chat`
 
-Sends a message to the AI.
-
-**Request Body:**
+Request body:
 ```json
 {
   "content": "Hello, can you help me find shoes?"
 }
 ```
 
-**Response:**
+Validation:
+- `content` is required.
+- `content` is trimmed.
+- Length: `1..2000` characters.
+
+Success response (`200`):
 ```json
 {
   "userMessage": {
@@ -66,34 +60,46 @@ Sends a message to the AI.
   "assistantMessage": {
     "id": "uuid...",
     "role": "ASSISTANT",
-    "content": "I received your message..."
+    "content": "..."
   }
 }
 ```
 
-### 2. Get History
-**GET** `/api/v1/chat/history`
+Common errors:
+- `400` invalid payload
+- `401` unauthorized
+- `500` processing failure
 
-Retrieves the full conversation history for the authenticated user.
+### 2) Get History
+`GET /api/v1/chat/history`
 
-### 3. Clear History
-**DELETE** `/api/v1/chat/history`
+Returns all stored messages for the authenticated user.
 
-Deletes all messages in the user's conversation.
+Common errors:
+- `401` unauthorized
+- `500` fetch failure
 
-⚠️ **Warning:** This action permanently deletes all conversation history and cannot be undone.
+### 3) Clear History
+`DELETE /api/v1/chat/history`
 
-## Integration
-This module uses **Google Gemini (gemini-1.5-flash)**, which offers a generous free tier.
+Deletes all chat messages for the authenticated user and resets stored summaries.
 
-⚠️ **Important:** Without `GEMINI_API_KEY`, the API will only return mock responses. All advanced features (tools, memory, escalation) require the API key to function.
+Common errors:
+- `401` unauthorized
+- `500` clear failure
 
-**Setup:**
-1. Get a **Free API Key** from [Google AI Studio](https://aistudio.google.com/).
-2. Add it to your `.env` file:
-   ```env
-   GEMINI_API_KEY="your_api_key_here"
-   ```
-3. Restart your server to activate advanced AI features.
+## Setup
+1. Get an API key from Google AI Studio: <https://aistudio.google.com/>
+2. Add to `.env`:
 
-The `processUserMessage` function in `src/modules/chat/chat.service.js` automatically uses this key to generate responses. If the key is missing, it returns a mock response.
+```env
+GEMINI_API_KEY="your_api_key_here"
+```
+
+3. Restart the backend.
+
+Optional model override:
+
+```env
+GEMINI_MODEL="gemini-1.5-flash"
+```

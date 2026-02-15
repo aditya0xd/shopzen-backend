@@ -35,9 +35,9 @@ const login = async (req, res) => {
   const { email, password } = valid.data;
   try {
 
-    const token = await loginUser(email, password);
+    const data = await loginUser(email, password);
 
-    res.status(200).json(token);
+    res.status(200).json(data);
 
 
   } catch (err) {

@@ -1,31 +1,5 @@
-// const prisma = require('../../utils/prisma');
-
-// const createProduct = async (data) => {
-//   return prisma.product.create({
-//     data
-//   });
-// };
-
-// const getAllProducts = async () => {
-//   return prisma.product.findMany({
-//     orderBy: { createdAt: 'desc' }
-//   });
-// };
-
-// const getProductById = async (id) => {
-//   return prisma.product.findUnique({
-//     where: { id }
-//   });
-// };
-
-// module.exports = {
-//   createProduct,
-//   getAllProducts,
-//   getProductById
-// };
 
 
-//
 const prisma = require( "../../utils/prisma")
 
 exports.createProduct = async (data) => {
@@ -36,7 +10,7 @@ exports.createProduct = async (data) => {
     rating: 0,
   };
 
-  // Optional safety check (good practice even without validation)
+  // Optional safety check to prevent misconfigured products, even though frontend should handle this
   if (productData.stock < productData.minimumOrderQuantity) {
     const error = new Error(
       "Stock cannot be less than minimum order quantity"
@@ -62,18 +36,22 @@ exports.createProduct = async (data) => {
   }
 };
 
-exports.getAllProducts = async ({ page, limit, q }) => {
+exports.getAllProducts = async ({ page, limit, q, category }) =>  {
   const skip = (page - 1) * limit;
 
-  console.log("Querying products with:", { page, limit, q });
+  console.log("Querying products with:", { page, limit, q , category});
 
-    const where = q
-    ? {
+    const where = {
+      ...(q && {
         OR: [
           { title: { contains: q, mode: "insensitive" } },
         ],
-      }
-    : {};
+      }),
+
+      ...(category && {
+        category: category,
+      }),
+    };
 
   const [products, total] = await Promise.all([
     prisma.product.findMany({
@@ -88,13 +66,14 @@ exports.getAllProducts = async ({ page, limit, q }) => {
         title: true,
         price: true,
         rating: true,
+        category: true,
         thumbnail: true,
         images: true,
         stock: true,
         availabilityStatus: true,
       },
     }),
-    prisma.product.count(),
+    prisma.product.count({ where })
   ]);
 
   return {
